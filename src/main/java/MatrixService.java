@@ -1,3 +1,5 @@
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MatrixService {
@@ -25,12 +27,27 @@ public class MatrixService {
          * @param syncObject - object for synchronization between threads
          */
         public ColumnSummator(int fromColumn, int toColumn, int[][] matrix, int resultId, int[] result, AtomicInteger syncObject) {
-            // should be implemented
+            this.fromColumn = fromColumn;
+            this.toColumn = toColumn;
+            this.matrix = matrix;
+            this.resultId = resultId;
+            this.result = result;
+            this.syncObject = syncObject;
         }
 
         @Override
         public void run() {
-            // should be implemented
+            while (fromColumn <= toColumn) {
+                for(int i = 0; i < matrix.length; i++) {
+                    result[resultId] += matrix[i][fromColumn];
+                }
+                ++fromColumn;
+            }
+            synchronized (syncObject) {
+                if (syncObject.decrementAndGet() == 0) {
+                    syncObject.notify();
+                }
+            }
         }
     }
 
@@ -43,16 +60,54 @@ public class MatrixService {
      */
     public int sum(int[][] matrix, int nthreads) throws InterruptedException {
 
-        int[] result = new int[nthreads];
-        AtomicInteger syncObject = new AtomicInteger(nthreads);
+        if (matrix.length == 0) {
+            return 0;
+        }
 
-        // create threads and divide work between them
-        // should be implemented
+        int[] result = new int[nthreads];
+        AtomicInteger syncObject = new AtomicInteger(nthreads + 1);
+        List<Thread> threadList = new ArrayList<>();
+        int fromColumn = 0;
+        int resultId = 0;
+
+        int partsCount;
+        if (nthreads > matrix[0].length) {
+            partsCount = matrix[0].length;
+        } else {
+            partsCount = matrix[0].length / nthreads;
+        }
+
+        int toColumn = fromColumn + partsCount - 1;
+
+        for (int i = 0; i < nthreads; i++) {
+            ColumnSummator columnSummator = new ColumnSummator(fromColumn, toColumn, matrix, resultId, result, syncObject);
+            threadList.add(new Thread(columnSummator));
+
+            fromColumn = toColumn + 1;
+            ++resultId;
+
+            if (matrix[0].length <= toColumn + matrix.length / partsCount) {
+                toColumn = matrix[0].length - 1;
+            } else {
+                toColumn = toColumn + matrix.length / partsCount;
+            };
+        }
+
+        for (Thread thread : threadList) {
+            thread.start();
+        }
+
+        synchronized (syncObject) {
+            if (syncObject.decrementAndGet() != 0) {
+                syncObject.wait();
+            }
+        }
 
         int sum = 0;
         for (int threadResult : result) {
             sum += threadResult;
         }
+
         return sum;
     }
 }
